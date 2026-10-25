@@ -10,6 +10,12 @@ import {
   type ReactNode,
 } from "react";
 import type { ImageFile, ImageMeta, ThumbInfo } from "../../entities/image/types";
+import { isVideoPath } from "../../entities/image/isVideo";
+import {
+  createPinchStepper,
+  createWheelStepper,
+  type PinchGestureEvent,
+} from "../../shared/lib/wheelStepper";
 import { useAppFullscreen } from "../../features/app-fullscreen/model/useAppFullscreen";
 import { useTranslation } from "react-i18next";
 import { StitchVueIcon } from "../../shared/icons/StitchVueIcon";
@@ -163,6 +169,8 @@ export function ImageViewer({
   const tokenRef = useRef(0);
   const filePathRef = useRef(file.path);
   filePathRef.current = file.path;
+  /** Video plays from the file; the grid poster (thumb) is only the placeholder. */
+  const isVideo = isVideoPath(file.path);
   const loadGen = useRef(0);
   const displaySrcRef = useRef<string | null>(null);
   displaySrcRef.current = displaySrc;
@@ -336,7 +344,7 @@ export function ImageViewer({
   );
 
   useEffect(() => {
-    if (nativeHold.current) {
+    if (nativeHold.current || isVideo) {
       return;
     }
     const gen = loadGen.current;
@@ -535,21 +543,14 @@ export function ImageViewer({
     if (!shell) {
       return;
     }
-    const onWheel = (event: WheelEvent) => {
-      if (modalOpenRef.current) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      const deltaY = event.deltaY;
-      if (deltaY === 0) {
-        return;
-      }
+    const wheelStep = createWheelStepper();
+    const pinch = createPinchStepper();
+    /** One zoom step anchored at the pointer. */
+    const zoomStep = (zoomIn: boolean, clientX: number, clientY: number) => {
       const oldIndex = zoomIndexRef.current;
-      const newIndex =
-        deltaY > 0
-          ? Math.max(0, oldIndex - 1)
-          : Math.min(VIEWER_ZOOM_STEPS.length - 1, oldIndex + 1);
+      const newIndex = zoomIn
+        ? Math.min(VIEWER_ZOOM_STEPS.length - 1, oldIndex + 1)
+        : Math.max(0, oldIndex - 1);
       if (newIndex === oldIndex) {
         return;
       }
@@ -561,8 +562,8 @@ export function ImageViewer({
       const oldFrame = computeViewerFrame(aspect, viewW, viewH, fill, oldScale);
       const newFrame = computeViewerFrame(aspect, viewW, viewH, fill, newScale);
       const rect = shell.getBoundingClientRect();
-      const cx = event.clientX - rect.left - rect.width / 2;
-      const cy = event.clientY - rect.top - rect.height / 2;
+      const cx = clientX - rect.left - rect.width / 2;
+      const cy = clientY - rect.top - rect.height / 2;
       const panNow = panRef.current;
       const px = oldFrame.width > 0 ? (cx - panNow.x) / oldFrame.width : 0;
       const py = oldFrame.height > 0 ? (cy - panNow.y) / oldFrame.height : 0;
@@ -576,8 +577,40 @@ export function ImageViewer({
         y: Math.min(maxY, Math.max(-maxY, nextY)),
       });
     };
+    const onWheel = (event: WheelEvent) => {
+      if (modalOpenRef.current) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const direction = wheelStep(event);
+      if (direction !== 0) {
+        zoomStep(direction < 0, event.clientX, event.clientY);
+      }
+    };
+    const onPinchStart = (event: Event) => {
+      event.preventDefault();
+      pinch.start();
+    };
+    const onPinch = (event: Event) => {
+      if (modalOpenRef.current) {
+        return;
+      }
+      event.preventDefault();
+      const gesture = event as PinchGestureEvent;
+      const direction = pinch.change(gesture.scale);
+      if (direction !== 0) {
+        zoomStep(direction > 0, gesture.clientX, gesture.clientY);
+      }
+    };
     shell.addEventListener("wheel", onWheel, { passive: false });
-    return () => shell.removeEventListener("wheel", onWheel);
+    shell.addEventListener("gesturestart", onPinchStart);
+    shell.addEventListener("gesturechange", onPinch);
+    return () => {
+      shell.removeEventListener("wheel", onWheel);
+      shell.removeEventListener("gesturestart", onPinchStart);
+      shell.removeEventListener("gesturechange", onPinch);
+    };
   }, [file.path]);
 
   const setFillScreenMode = (value: boolean) => {
@@ -720,16 +753,38 @@ export function ImageViewer({
           <StitchVueIcon name="viewer-next" className={styles.navIcon} />
         </button>
       </div>
-      {!displaySrc ? <p className={styles.loading}>{t("common.loading")}</p> : null}
+      {!displaySrc && !isVideo ? <p className={styles.loading}>{t("common.loading")}</p> : null}
       <div
         ref={frameRef}
         className={styles.frame}
-        data-grab={canPan ? (grabbing ? "grabbing" : "grab") : undefined}
-        data-ready={displaySrc ? "true" : "false"}
+        data-grab={canPan && !isVideo ? (grabbing ? "grabbing" : "grab") : undefined}
+        data-ready={displaySrc || isVideo ? "true" : "false"}
         style={{ width: frame.width, height: frame.height, transform: `translate(${pan.x}px, ${pan.y}px)` }}
         data-opening={opening ? "true" : undefined}
       >
-        {displaySrc ? (
+        {isVideo ? (
+          <video
+            key={file.path}
+            className={styles.photo}
+            src={convertFileSrc(file.path)}
+            poster={displaySrc ?? undefined}
+            controls
+            autoPlay
+            playsInline
+            style={photoStyle}
+            // A click inside the frame closes the viewer; keep the controls usable.
+            onClick={(event) => event.stopPropagation()}
+            onLoadedMetadata={(event) => {
+              const { videoWidth, videoHeight } = event.currentTarget;
+              if (videoWidth > 0 && videoHeight > 0 && !metaAspectKnown(meta)) {
+                applyGeometry(videoWidth / videoHeight, videoWidth, videoHeight);
+              }
+              setOpening(false);
+            }}
+            // Codec WebKit cannot play (e.g. AV1 on older Macs): keep the poster visible.
+            onError={() => setOpening(false)}
+          />
+        ) : displaySrc ? (
           <img
             className={styles.photo}
             src={displaySrc}

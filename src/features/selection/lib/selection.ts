@@ -144,22 +144,27 @@ export function isTypingTarget(target: EventTarget | null): boolean {
   return tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT" || target.isContentEditable;
 }
 
-/** Physical KeyA — layout-independent (RU layout sends key "ф", not "a"). */
+/** Physical KeyA — layout-independent (RU layout sends key "ф", not "a"). Ctrl or ⌘ (macOS). */
 export function isSelectAllHotkey(event: {
   code: string;
   ctrlKey: boolean;
   shiftKey: boolean;
   metaKey?: boolean;
 }): boolean {
-  return event.code === "KeyA" && event.ctrlKey && !event.shiftKey;
+  return event.code === "KeyA" && (event.ctrlKey || Boolean(event.metaKey)) && !event.shiftKey;
 }
 
-/** Ctrl+Shift+A — clear selection; same physical key as select-all. */
+/** Ctrl/⌘+Shift+A — clear selection; same physical key as select-all. */
 export function isClearSelectionHotkey(event: {
   code: string;
   ctrlKey: boolean;
   shiftKey: boolean;
   metaKey?: boolean;
 }): boolean {
-  return event.code === "KeyA" && event.ctrlKey && event.shiftKey;
+  return event.code === "KeyA" && (event.ctrlKey || Boolean(event.metaKey)) && event.shiftKey;
+}
+
+/** Delete, or ⌘⌫ — Mac keyboards have no Delete key (theirs sends Backspace). */
+export function isDeleteHotkey(event: { key: string; metaKey?: boolean }): boolean {
+  return event.key === "Delete" || (event.key === "Backspace" && Boolean(event.metaKey));
 }

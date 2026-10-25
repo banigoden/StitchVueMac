@@ -1,0 +1,67 @@
+# StitchVue macOS CI: tests + universal (Apple Silicon + Intel) .dmg for PRs and main.
+# The .dmg is ad-hoc signed, not notarized: on first launch macOS blocks it; allow it in
+# System Settings → Privacy & Security → "Open Anyway" (or remove the quarantine attribute).
+
+name: ci-macos
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-macos-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  macos:
+    # Apple Silicon runner; pinned like the Windows release job, bump deliberately.
+    runs-on: macos-14
+    timeout-minutes: 90
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Rust stable (both macOS architectures)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Typecheck / i18n / frontend tests
+        run: |
+          npm run typecheck
+          npm run i18n-check
+          npm test
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Build universal .app + .dmg
+        run: npm run tauri build -- --target universal-apple-darwin
+
+      - name: Upload .dmg
+        uses: actions/upload-artifact@v4
+        with:
+          name: StitchVue-macos-universal
+          path: src-tauri/target/universal-apple-darwin/release/bundle/dmg/*.dmg
+          if-no-files-found: error
+          retention-days: 14

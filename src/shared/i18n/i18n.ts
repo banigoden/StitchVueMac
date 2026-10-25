@@ -18,6 +18,8 @@ import de from "./locales/de.json" with { type: "json" };
 import en from "./locales/en.json" with { type: "json" };
 import ru from "./locales/ru.json" with { type: "json" };
 import zhHans from "./locales/zh-Hans.json" with { type: "json" };
+import { PLATFORM } from "../lib/platform.ts";
+import { withPlatformStrings } from "./platformStrings.ts";
 
 let initialized = false;
 
@@ -42,13 +44,15 @@ export function initI18n(): typeof i18n {
     const prefs = loadPreferences();
     const lng: UserFacingLocale = isUserFacingLocale(prefs.locale) ? prefs.locale : "en";
 
+    const dictionaries = withPlatformStrings({ ru, en, de, "zh-Hans": zhHans }, PLATFORM);
+
     i18n.use(initReactI18next);
     void i18n.init({
       resources: {
-        ru: { translation: ru },
-        en: { translation: en },
-        de: { translation: de },
-        "zh-Hans": { translation: zhHans },
+        ru: { translation: dictionaries.ru },
+        en: { translation: dictionaries.en },
+        de: { translation: dictionaries.de },
+        "zh-Hans": { translation: dictionaries["zh-Hans"] },
       },
       lng,
       fallbackLng: "ru",

@@ -24,7 +24,7 @@ pub fn profile_for(path: &Path, override_profile: Option<StorageProfile>) -> Sto
         return profile;
     }
     let Some(volume) = volume_key(path) else {
-        return StorageProfile::Hdd;
+        return unprobed_profile(path);
     };
     let mut cache = CACHE.lock().unwrap_or_else(|err| err.into_inner());
     let cache = cache.get_or_insert_with(HashMap::new);
@@ -34,6 +34,25 @@ pub fn profile_for(path: &Path, override_profile: Option<StorageProfile>) -> Sto
     let profile = detect_volume(&volume).unwrap_or(StorageProfile::Hdd);
     cache.insert(volume, profile);
     profile
+}
+
+/// No drive probe outside Windows. The system disk is assumed to be an SSD (every
+/// current Mac, most Linux machines); mounted volumes keep the cautious HDD profile
+/// unless overridden in settings.
+// ponytail: path heuristic. Probe IOKit "Solid State" (macOS) or
+// /sys/dev/block/<dev>/queue/rotational (Linux) if it guesses wrong too often.
+fn unprobed_profile(path: &Path) -> StorageProfile {
+    const MOUNTS: &[&str] = if cfg!(target_os = "macos") {
+        &["/Volumes"]
+    } else {
+        &["/media", "/run/media", "/mnt"]
+    };
+    let unix = cfg!(any(target_os = "macos", target_os = "linux"));
+    if unix && path.has_root() && !MOUNTS.iter().any(|mount| path.starts_with(mount)) {
+        StorageProfile::Ssd
+    } else {
+        StorageProfile::Hdd
+    }
 }
 
 fn volume_key(path: &Path) -> Option<String> {
@@ -158,4 +177,26 @@ fn query_storage(volume: &str, property_id: i32, output: &mut [u8]) -> Option<us
 #[cfg(not(windows))]
 pub(crate) fn detect_volume(_volume: &str) -> Option<StorageProfile> {
     None
+}
+
+#[cfg(all(test, any(target_os = "macos", target_os = "linux")))]
+mod tests {
+    use super::{profile_for, StorageProfile};
+    use std::path::Path;
+
+    #[test]
+    fn system_disk_is_ssd_and_mounted_volumes_stay_cautious() {
+        let profile = |path: &str| profile_for(Path::new(path), None);
+        assert_eq!(profile("/Users/me/Pictures"), StorageProfile::Ssd);
+        let mounted = if cfg!(target_os = "macos") {
+            "/Volumes/Archive/Photos"
+        } else {
+            "/media/me/Archive/Photos"
+        };
+        assert_eq!(profile(mounted), StorageProfile::Hdd);
+        assert_eq!(
+            profile_for(Path::new("/Volumes/Archive"), Some(StorageProfile::Ssd)),
+            StorageProfile::Ssd
+        );
+    }
 }

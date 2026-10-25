@@ -12,6 +12,7 @@ import {
     addRange,
     emptySelection,
     isClearSelectionHotkey,
+    isDeleteHotkey,
     isSelectAllHotkey,
     isTypingTarget,
     pathKey,
@@ -210,7 +211,7 @@ export function processGallerySelectionKeyDown(
         ctx.commands.selectAllImages();
         return 'handled';
     }
-    if (event.key === 'Delete' && !ctx.fileOperationActive) {
+    if (isDeleteHotkey(event) && !ctx.fileOperationActive) {
         event.preventDefault();
         ctx.commands.deleteSelection();
         return 'handled';
