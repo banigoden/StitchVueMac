@@ -11,6 +11,11 @@ import {
 } from "react";
 import type { ImageFile, ImageMeta, ThumbInfo } from "../../entities/image/types";
 import { isVideoPath } from "../../entities/image/isVideo";
+import {
+  createPinchStepper,
+  createWheelStepper,
+  type PinchGestureEvent,
+} from "../../shared/lib/wheelStepper";
 import { useAppFullscreen } from "../../features/app-fullscreen/model/useAppFullscreen";
 import { useTranslation } from "react-i18next";
 import { StitchVueIcon } from "../../shared/icons/StitchVueIcon";
@@ -538,21 +543,14 @@ export function ImageViewer({
     if (!shell) {
       return;
     }
-    const onWheel = (event: WheelEvent) => {
-      if (modalOpenRef.current) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      const deltaY = event.deltaY;
-      if (deltaY === 0) {
-        return;
-      }
+    const wheelStep = createWheelStepper();
+    const pinch = createPinchStepper();
+    /** One zoom step anchored at the pointer. */
+    const zoomStep = (zoomIn: boolean, clientX: number, clientY: number) => {
       const oldIndex = zoomIndexRef.current;
-      const newIndex =
-        deltaY > 0
-          ? Math.max(0, oldIndex - 1)
-          : Math.min(VIEWER_ZOOM_STEPS.length - 1, oldIndex + 1);
+      const newIndex = zoomIn
+        ? Math.min(VIEWER_ZOOM_STEPS.length - 1, oldIndex + 1)
+        : Math.max(0, oldIndex - 1);
       if (newIndex === oldIndex) {
         return;
       }
@@ -564,8 +562,8 @@ export function ImageViewer({
       const oldFrame = computeViewerFrame(aspect, viewW, viewH, fill, oldScale);
       const newFrame = computeViewerFrame(aspect, viewW, viewH, fill, newScale);
       const rect = shell.getBoundingClientRect();
-      const cx = event.clientX - rect.left - rect.width / 2;
-      const cy = event.clientY - rect.top - rect.height / 2;
+      const cx = clientX - rect.left - rect.width / 2;
+      const cy = clientY - rect.top - rect.height / 2;
       const panNow = panRef.current;
       const px = oldFrame.width > 0 ? (cx - panNow.x) / oldFrame.width : 0;
       const py = oldFrame.height > 0 ? (cy - panNow.y) / oldFrame.height : 0;
@@ -579,8 +577,40 @@ export function ImageViewer({
         y: Math.min(maxY, Math.max(-maxY, nextY)),
       });
     };
+    const onWheel = (event: WheelEvent) => {
+      if (modalOpenRef.current) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      const direction = wheelStep(event);
+      if (direction !== 0) {
+        zoomStep(direction < 0, event.clientX, event.clientY);
+      }
+    };
+    const onPinchStart = (event: Event) => {
+      event.preventDefault();
+      pinch.start();
+    };
+    const onPinch = (event: Event) => {
+      if (modalOpenRef.current) {
+        return;
+      }
+      event.preventDefault();
+      const gesture = event as PinchGestureEvent;
+      const direction = pinch.change(gesture.scale);
+      if (direction !== 0) {
+        zoomStep(direction > 0, gesture.clientX, gesture.clientY);
+      }
+    };
     shell.addEventListener("wheel", onWheel, { passive: false });
-    return () => shell.removeEventListener("wheel", onWheel);
+    shell.addEventListener("gesturestart", onPinchStart);
+    shell.addEventListener("gesturechange", onPinch);
+    return () => {
+      shell.removeEventListener("wheel", onWheel);
+      shell.removeEventListener("gesturestart", onPinchStart);
+      shell.removeEventListener("gesturechange", onPinch);
+    };
   }, [file.path]);
 
   const setFillScreenMode = (value: boolean) => {

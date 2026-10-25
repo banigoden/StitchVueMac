@@ -523,7 +523,9 @@ mod tests {
         };
         writer.join().unwrap();
 
-        assert_eq!(listed.images.len(), 2);
+        // The scan may finish before or after the write lands; either is a correct listing.
+        // What must never happen is the next load serving a stale cached one.
+        assert!(matches!(listed.images.len(), 1 | 2), "got {}", listed.images.len());
         let warm = load(&root, &mut |_| {}).unwrap();
         assert_eq!(warm.images.len(), 2);
         let _ = fs::remove_dir_all(&root);

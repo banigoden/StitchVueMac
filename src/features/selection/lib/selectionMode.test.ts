@@ -9,6 +9,7 @@ import {
   addRange,
   emptySelection,
   isClearSelectionHotkey,
+  isDeleteHotkey,
   isSelectAllHotkey,
   selectAll,
   togglePath,
@@ -95,6 +96,16 @@ test("4b. Ctrl+A hotkey uses event.code (RU layout key ф still matches)", () =>
   assert.equal(isClearSelectionHotkey({ code: "KeyA", ctrlKey: true, shiftKey: true }), true);
   assert.equal(isClearSelectionHotkey({ code: "KeyA", ctrlKey: true, shiftKey: false }), false);
   assert.equal(isSelectAllHotkey({ code: "KeyA", ctrlKey: true, shiftKey: true }), false);
+  // macOS: ⌘ instead of Ctrl.
+  assert.equal(isSelectAllHotkey({ code: "KeyA", ctrlKey: false, metaKey: true, shiftKey: false }), true);
+  assert.equal(isClearSelectionHotkey({ code: "KeyA", ctrlKey: false, metaKey: true, shiftKey: true }), true);
+  assert.equal(isSelectAllHotkey({ code: "KeyA", ctrlKey: false, metaKey: false, shiftKey: false }), false);
+});
+
+test("delete hotkey accepts Delete and ⌘⌫ but not a bare Backspace", () => {
+  assert.equal(isDeleteHotkey({ key: "Delete" }), true);
+  assert.equal(isDeleteHotkey({ key: "Backspace", metaKey: true }), true);
+  assert.equal(isDeleteHotkey({ key: "Backspace", metaKey: false }), false);
 });
 
 test("5. Select button turns mode on with empty selection (checkmarks available)", () => {

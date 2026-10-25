@@ -1,4 +1,6 @@
-# StitchVue Windows x64 release (NSIS + signed updater artifacts).
+# StitchVue release: Windows x64 (NSIS + signed updater artifacts), then macOS universal .dmg
+# (ad-hoc signed, not notarized: users allow it once in Privacy & Security → "Open Anyway";
+# no in-app updater on macOS yet).
 # Trigger: push tag matching v* (e.g. v0.1.0). Does not create tags itself.
 # Requires repo Secrets: TAURI_SIGNING_PRIVATE_KEY, TAURI_SIGNING_PRIVATE_KEY_PASSWORD.
 # Review assets on the draft Release, then publish (Latest) when ready for in-app updater.
@@ -139,3 +141,48 @@ jobs:
           updaterJsonPreferNsis: true
           uploadUpdaterSignatures: true
           args: --target x86_64-pc-windows-msvc
+
+  release-macos:
+    # After Windows so the draft Release (and its latest.json) already exists;
+    # this job only adds the .dmg and never touches the updater JSON.
+    needs: release-windows
+    runs-on: macos-14
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version: "22"
+          cache: npm
+
+      - name: Install Rust stable (both macOS architectures)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-apple-darwin,x86_64-apple-darwin
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Rust tests
+        run: cargo test --manifest-path src-tauri/Cargo.toml --locked
+
+      - name: Build universal .dmg and attach it to the draft Release
+        uses: tauri-apps/tauri-action@v1
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: StitchVue ${{ github.ref_name }}
+          releaseDraft: true
+          prerelease: false
+          uploadUpdaterJson: false
+          args: --target universal-apple-darwin

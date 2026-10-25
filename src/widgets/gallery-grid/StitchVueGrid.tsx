@@ -2,6 +2,11 @@ import { convertFileSrc } from "@tauri-apps/api/core";
 import { useCallback, useEffect, useLayoutEffect, useRef, useState, type ReactNode, type RefObject } from "react";
 import type { ImageFile, ImageMeta, ThumbInfo } from "../../entities/image/types";
 import { isVideoPath } from "../../entities/image/isVideo";
+import {
+  createPinchStepper,
+  createWheelStepper,
+  type PinchGestureEvent,
+} from "../../shared/lib/wheelStepper";
 import { displayAspect, rotationQuarters, tilePhotoStyle } from "../../features/gallery/lib/viewer/displayRotation";
 import { photoDateLabel } from "../../features/gallery/lib/listing/galleryOrder";
 import {
@@ -195,6 +200,39 @@ export function StitchVueGrid({
 }: StitchVueGridProps) {
   const { t } = useTranslation();
   const viewportRef = useRef<HTMLDivElement>(null);
+  const zoomWheelStep = useRef(createWheelStepper()).current;
+  /** One tile-size step (`bigger` = fewer rows per screen); latest props via ref for listeners. */
+  const zoomTilesRef = useRef((_bigger: boolean) => {});
+  zoomTilesRef.current = (bigger) => {
+    const current = ZOOM_STEPS.indexOf(rowsPerScreen);
+    const index = current === -1 ? ZOOM_STEPS.indexOf(4) : current;
+    const next = bigger ? Math.min(ZOOM_STEPS.length - 1, index + 1) : Math.max(0, index - 1);
+    onZoom(ZOOM_STEPS[next]);
+  };
+  useEffect(() => {
+    const node = viewportRef.current;
+    if (!node) {
+      return;
+    }
+    const pinch = createPinchStepper();
+    const onPinchStart = (event: Event) => {
+      event.preventDefault();
+      pinch.start();
+    };
+    const onPinch = (event: Event) => {
+      event.preventDefault();
+      const direction = pinch.change((event as PinchGestureEvent).scale);
+      if (direction !== 0) {
+        zoomTilesRef.current(direction > 0);
+      }
+    };
+    node.addEventListener("gesturestart", onPinchStart);
+    node.addEventListener("gesturechange", onPinch);
+    return () => {
+      node.removeEventListener("gesturestart", onPinchStart);
+      node.removeEventListener("gesturechange", onPinch);
+    };
+  }, []);
   const folderHeaderShellRef = useRef<HTMLDivElement>(null);
   const folderHeaderInnerRef = useRef<HTMLDivElement>(null);
   const [naturalHeaderHeight, setNaturalHeaderHeight] = useState(0);
@@ -894,10 +932,11 @@ export function StitchVueGrid({
           return;
         }
         event.preventDefault();
-        const current = ZOOM_STEPS.indexOf(rowsPerScreen);
-        const index = current === -1 ? ZOOM_STEPS.indexOf(4) : current;
-        const next = event.deltaY > 0 ? Math.min(ZOOM_STEPS.length - 1, index + 1) : Math.max(0, index - 1);
-        onZoom(ZOOM_STEPS[next]);
+        // Ctrl+wheel (Chromium also reports trackpad pinch this way; WebKit uses gesture events above).
+        const direction = zoomWheelStep(event);
+        if (direction !== 0) {
+          zoomTilesRef.current(direction > 0);
+        }
       }}
     >
       {folderHeader ? (
