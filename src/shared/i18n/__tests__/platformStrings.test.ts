@@ -4,7 +4,7 @@ import de from "../locales/de.json" with { type: "json" };
 import en from "../locales/en.json" with { type: "json" };
 import ru from "../locales/ru.json" with { type: "json" };
 import zhHans from "../locales/zh-Hans.json" with { type: "json" };
-import { detectPlatform } from "../../lib/platform.ts";
+import { caseFold, detectPlatform } from "../../lib/platform.ts";
 import { withPlatformStrings } from "../platformStrings.ts";
 
 const shipped = { ru, en, de, "zh-Hans": zhHans };
@@ -41,4 +41,12 @@ test("detectPlatform reads the WebView user agent", () => {
   assert.equal(detectPlatform("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15"), "linux");
   assert.equal(detectPlatform("Mozilla/5.0 (Windows NT 10.0; Win64; x64) Edg/130.0"), "windows");
   assert.equal(detectPlatform(""), "windows");
+  // A WebKitGTK agent that also mentions Mac is still Linux.
+  assert.equal(detectPlatform("Mozilla/5.0 (Macintosh; X11; Linux x86_64) AppleWebKit/605.1.15"), "linux");
+});
+
+test("path keys keep case only on Linux", () => {
+  assert.equal(caseFold("/home/me/Trip", "linux"), "/home/me/Trip");
+  assert.equal(caseFold("/Users/me/Trip", "macos"), "/users/me/trip");
+  assert.equal(caseFold("C:\\Photos\\Trip", "windows"), "c:\\photos\\trip");
 });

@@ -61,7 +61,7 @@ fn spawn_explorer(argument: &str) -> Result<(), String> {
     #[cfg(target_os = "linux")]
     {
         // Directories always open in the file manager; there are no app bundles here.
-        std::process::Command::new("xdg-open")
+        xdg_open()
             .arg(argument)
             .spawn()
             .map_err(|_| "io_error".to_string())?;
@@ -72,6 +72,35 @@ fn spawn_explorer(argument: &str) -> Result<(), String> {
         let _ = argument;
         Err("unsupported".to_string())
     }
+}
+
+/// `xdg-open` with the host environment. Inside an AppImage the runtime prepends `$APPDIR`
+/// paths (libraries, GTK/GIO modules, XDG data dirs); a file manager or browser started with
+/// them can load the bundle's libraries and crash.
+#[cfg(target_os = "linux")]
+pub(crate) fn xdg_open() -> std::process::Command {
+    let mut command = std::process::Command::new("xdg-open");
+    if let Some(appdir) = std::env::var_os("APPDIR").and_then(|dir| dir.into_string().ok()) {
+        for (key, value) in std::env::vars() {
+            if value.contains(appdir.as_str()) {
+                match strip_appdir(&value, &appdir) {
+                    Some(host) => command.env(key, host),
+                    None => command.env_remove(key),
+                };
+            }
+        }
+    }
+    command
+}
+
+/// Drops `:`-separated entries inside `appdir`; `None` when nothing is left.
+#[cfg(any(target_os = "linux", test))]
+fn strip_appdir(value: &str, appdir: &str) -> Option<String> {
+    let kept: Vec<&str> = value
+        .split(':')
+        .filter(|part| !part.is_empty() && !part.starts_with(appdir))
+        .collect();
+    (!kept.is_empty()).then(|| kept.join(":"))
 }
 
 /// Plain `open` launches bundles (`X.app` is a directory), so anything that may be a
@@ -122,6 +151,24 @@ mod tests {
         let canonical = fs::canonicalize(&root).unwrap();
         assert_eq!(got, path_string_for_app(&canonical));
         let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn appimage_paths_are_stripped_from_child_environment() {
+        use super::strip_appdir;
+        let appdir = "/tmp/.mount_StitchXYZ";
+        assert_eq!(
+            strip_appdir(
+                "/tmp/.mount_StitchXYZ/usr/share:/usr/local/share:/usr/share",
+                appdir
+            ),
+            Some("/usr/local/share:/usr/share".to_string())
+        );
+        assert_eq!(strip_appdir("/tmp/.mount_StitchXYZ/usr/lib", appdir), None);
+        assert_eq!(
+            strip_appdir("/tmp/.mount_StitchXYZ/usr/lib/gtk-3.0", appdir),
+            None
+        );
     }
 
     #[cfg(target_os = "macos")]

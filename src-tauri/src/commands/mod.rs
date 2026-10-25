@@ -613,8 +613,11 @@ fn open_url_in_browser(url: &str) -> Result<(), String> {
     }
     #[cfg(not(windows))]
     {
-        let opener = if cfg!(target_os = "macos") { "open" } else { "xdg-open" };
-        std::process::Command::new(opener)
+        #[cfg(target_os = "linux")]
+        let mut command = crate::file_ops::xdg_open();
+        #[cfg(not(target_os = "linux"))]
+        let mut command = std::process::Command::new("open");
+        command
             .arg(url)
             .spawn()
             .map_err(|err| format!("open browser: {err}"))?;

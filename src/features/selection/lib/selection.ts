@@ -1,3 +1,5 @@
+import { caseFold } from "../../../shared/lib/platform.ts";
+
 export type SelectionState = {
   directoryKey: string | null;
   paths: string[];
@@ -17,7 +19,7 @@ export function pathKey(path: string): string {
       normalized = `\\\\${normalized.slice(4)}`;
     }
   }
-  return normalized.toLowerCase();
+  return caseFold(normalized);
 }
 
 export function folderLeaf(path: string | null): string {

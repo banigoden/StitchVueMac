@@ -635,10 +635,16 @@ pub fn delete_trash(conn: &Connection, trash_path: &str) -> Result<(), String> {
 }
 
 fn path_key(value: &str) -> String {
-    normalize_stored_path(value)
+    let key = normalize_stored_path(value)
         .replace('/', "\\")
         .trim_end_matches('\\')
-        .to_ascii_lowercase()
+        .to_string();
+    // Linux file systems are case-sensitive: `IMG.JPG` and `img.jpg` are two files.
+    if cfg!(target_os = "linux") {
+        key
+    } else {
+        key.to_ascii_lowercase()
+    }
 }
 
 pub(crate) fn favorite_origin_lookup_key(value: &str) -> String {

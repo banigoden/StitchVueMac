@@ -1,7 +1,7 @@
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-use super::{is_reparse, normalize_key, read_service_role, same_path, ServiceRole, ROLE_FILE};
+use super::{is_reparse, read_service_role, same_path, ServiceRole, ROLE_FILE};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RecycleStatus {
@@ -481,7 +481,7 @@ pub fn path_still_there(path: &Path) -> bool {
 
 #[allow(dead_code)]
 pub fn same_normalized(left: &Path, right: &Path) -> bool {
-    normalize_key(left).eq_ignore_ascii_case(&normalize_key(right))
+    same_path(left, right)
 }
 
 #[cfg(test)]
