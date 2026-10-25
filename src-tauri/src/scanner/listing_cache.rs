@@ -365,11 +365,17 @@ fn mix(name: &str, len: u64, modified: i64, is_dir: bool) -> u64 {
 }
 
 pub(super) fn cache_key(folder: &Path) -> String {
-    folder
+    let key = folder
         .to_string_lossy()
         .replace('/', "\\")
         .trim_end_matches('\\')
-        .to_lowercase()
+        .to_string();
+    // Linux: `Trip` and `trip` are different folders and must not share a cached listing.
+    if cfg!(target_os = "linux") {
+        key
+    } else {
+        key.to_lowercase()
+    }
 }
 
 pub(super) fn drop_listing(folder: &Path) {

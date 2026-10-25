@@ -1,6 +1,8 @@
 {
     "bundle": {
         "targets": ["deb", "appimage"],
-        "createUpdaterArtifacts": false
+        "createUpdaterArtifacts": false,
+        "category": "Photography",
+        "shortDescription": "Fast photo gallery for large folders"
     }
 }

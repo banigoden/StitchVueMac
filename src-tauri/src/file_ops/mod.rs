@@ -43,6 +43,8 @@ pub(crate) mod trash_folder;
 pub use favorites::RemoveFavoriteCopyResult;
 pub use favorites_batch::{FavoriteBatchPathResult, FavoriteBatchRemoveItem, FavoriteCopyOrigin};
 pub use open_explorer::open_folder_in_explorer;
+#[cfg(target_os = "linux")]
+pub(crate) use open_explorer::xdg_open;
 // ServiceFolderCleanupResult is defined in this module.
 pub use content_hash::sha256_file;
 pub(crate) use favorite_duplicate_hint::favorite_duplicate_hints_for_paths;
@@ -1586,11 +1588,13 @@ pub fn rename_child_folder(
         .file_name()
         .and_then(|name| name.to_str())
         .ok_or_else(|| "Некорректное имя папки.".to_string())?;
-    if current_name.eq_ignore_ascii_case(&new_name) {
+    if current_name == new_name {
         return Ok(child.display().to_string());
     }
     let destination = parent.join(&new_name);
     match fs::symlink_metadata(&destination) {
+        // `trip` → `Trip` on a case-insensitive volume: the "existing" entry is this folder.
+        Ok(_) if is_same_entry(&child, &destination) => {}
         Ok(_) => return Err(format!("«{new_name}» уже существует.")),
         Err(err) if err.kind() == io::ErrorKind::NotFound => {}
         Err(err) => return Err(io_fail(&destination, &err).message.clone()),
@@ -1607,6 +1611,25 @@ pub fn rename_child_folder(
     crate::scanner::drop_listing_cache(&child);
     crate::scanner::drop_listing_cache(&destination);
     Ok(destination.display().to_string())
+}
+
+/// Both paths name the same directory entry (case-insensitive volume, different case).
+fn is_same_entry(left: &Path, right: &Path) -> bool {
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::MetadataExt;
+        match (fs::symlink_metadata(left), fs::symlink_metadata(right)) {
+            (Ok(a), Ok(b)) => a.dev() == b.dev() && a.ino() == b.ino(),
+            _ => false,
+        }
+    }
+    #[cfg(not(unix))]
+    {
+        // NTFS folders are case-insensitive: a case-only difference names the same entry.
+        left.file_name()
+            .zip(right.file_name())
+            .is_some_and(|(a, b)| a.eq_ignore_ascii_case(b))
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -1987,8 +2010,14 @@ pub(crate) fn normalize_key(path: &Path) -> String {
     text.trim_end_matches('\\').to_string()
 }
 
+/// Case-insensitive like NTFS / default APFS; exact on Linux, where case makes a different file.
 pub(crate) fn same_path(left: &Path, right: &Path) -> bool {
-    normalize_key(left).eq_ignore_ascii_case(&normalize_key(right))
+    let (left, right) = (normalize_key(left), normalize_key(right));
+    if cfg!(target_os = "linux") {
+        left == right
+    } else {
+        left.eq_ignore_ascii_case(&right)
+    }
 }
 
 pub(crate) fn is_reparse(meta: &fs::Metadata) -> bool {
@@ -2229,6 +2258,41 @@ mod tests {
         let _ = fs::remove_dir_all(&root);
         fs::create_dir_all(&root).unwrap();
         root
+    }
+
+    fn entry_names(dir: &Path) -> Vec<String> {
+        let mut names: Vec<_> = fs::read_dir(dir)
+            .unwrap()
+            .flatten()
+            .map(|entry| entry.file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
+    #[test]
+    fn case_only_folder_rename_changes_the_name() {
+        let root = fs::canonicalize(sandbox()).unwrap();
+        let folder = root.join("trip");
+        fs::create_dir(&folder).unwrap();
+        let renamed =
+            rename_child_folder(&root.display().to_string(), &folder.display().to_string(), "Trip")
+                .unwrap();
+        assert!(renamed.ends_with("Trip"), "{renamed}");
+        assert_eq!(entry_names(&root), vec!["Trip".to_string()]);
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[cfg(target_os = "linux")]
+    #[test]
+    fn case_only_rename_onto_a_real_sibling_is_refused() {
+        let root = fs::canonicalize(sandbox()).unwrap();
+        fs::create_dir(root.join("trip")).unwrap();
+        fs::create_dir(root.join("Trip")).unwrap();
+        let folder = root.join("trip").display().to_string();
+        assert!(rename_child_folder(&root.display().to_string(), &folder, "Trip").is_err());
+        assert_eq!(entry_names(&root), vec!["Trip".to_string(), "trip".to_string()]);
+        let _ = fs::remove_dir_all(&root);
     }
 
     fn write_image(path: &Path, bytes: &[u8]) {

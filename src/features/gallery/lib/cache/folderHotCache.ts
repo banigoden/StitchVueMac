@@ -2,9 +2,10 @@ import type { FolderShortcut } from "../../../../entities/folder/types";
 import type { ImageFile, ImageMeta, ThumbInfo } from "../../../../entities/image/types";
 import type { LayoutMode } from "../../../../entities/gallery/layoutMode";
 import type { GallerySort } from "../listing/galleryOrder";
+import { caseFold } from "../../../../shared/lib/platform.ts";
 
 function pathKey(path: string): string {
-  return path.replace(/\//g, "\\").replace(/\\+$/, "").toLowerCase();
+  return caseFold(path.replace(/\//g, "\\").replace(/\\+$/, ""));
 }
 
 export const HOT_FOLDER_LIMIT = 5;
